@@ -22,3 +22,4 @@ Cargo.lock
 *.iml
 .vscode/
 storage/
+.env
