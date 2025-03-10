@@ -1,12 +1,11 @@
-
-#![ allow(warnings)]
-#![allow(unused_imports)]
-// Third-party dependencies
 use actix_web::{App, HttpServer, middleware::Logger};
 use actix_cors::Cors;
 use dotenv::dotenv;
 use std::env;
-use log::info;
+use log::{info, warn};
+
+// Import the Auth middleware
+use crate::utils::Auth;
 
 // Module imports
 mod routes;
@@ -17,18 +16,22 @@ mod utils;
 async fn main() -> std::io::Result<()> {
     // Initialize environment
     dotenv().ok();
-    env_logger::init();
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
 
     // Create storage directories
+    info!("Ensuring storage directories exist");
     std::fs::create_dir_all("./storage")?;
     std::fs::create_dir_all("./storage/users")?;
+    std::fs::create_dir_all("./storage/teams")?; // Add teams directory
+    std::fs::create_dir_all("./storage/team_members")?; // Add team members directory
+    std::fs::create_dir_all("./storage/public")?; // Ensure public dir exists
 
     // Get configuration from environment or use defaults
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "9090".to_string());
     let address = format!("{}:{}", host, port);
 
-    info!("Starting Laminotes server at http://{}", address);
+    info!("🚀 Starting Laminotes server at http://{}", address);
 
     HttpServer::new(|| {
         // Configure CORS
@@ -42,11 +45,12 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(Logger::default())
             .wrap(cors)
+            .wrap(Auth) // Add the Auth middleware
             .configure(routes::file_routes::init_routes)
             .configure(routes::auth_routes::init_routes)
+            .configure(routes::team_routes::init_routes) // Add team routes
     })
         .bind(address)?
         .run()
         .await
 }
-//TEST: Launch server on http://127.0.0.1:9090/
