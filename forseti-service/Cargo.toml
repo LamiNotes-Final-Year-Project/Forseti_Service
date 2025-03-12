@@ -17,6 +17,10 @@ env_logger = "0.10"
 log = "0.4"
 futures = "0.3"
 derive_more = "0.99"
+regex = "1.7"
+lazy_static = "1.4.0"
+similar = "2.2.1"
+sha2 = "0.10"
 
 [dev-dependencies]
 actix-rt = "2.8"

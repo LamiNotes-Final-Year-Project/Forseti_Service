@@ -1,9 +1,9 @@
 use crate::models::{Claims, FileMetadata, ServiceError, TeamRole, UploadRequest};
-use crate::utils::{fs_utils, team_storage};
+use crate::utils::{fs_utils, team_storage, version_control};
 use crate::utils::UserContext; // Import UserContext
 use actix_web::{delete, get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use chrono::Utc;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -26,6 +26,33 @@ async fn get_file(req: HttpRequest, path: web::Path<String>) -> Result<HttpRespo
     let filename = path.into_inner();
     info!("📥 Get file request: user_id={}, team={:?}, filename={}",
           user_context.user_id, user_context.active_team_id, filename);
+
+    // Check if file has an active version control ID
+    // For compatibility, we'll first check if there's a file ID that matches the filename
+    let versioned_file_id = filename.clone();
+    let has_version_control = version_control::version_storage::load_versioned_file_metadata(&versioned_file_id)
+        .map(|metadata| !metadata.versions.is_empty())
+        .unwrap_or(false);
+
+    if has_version_control {
+        info!("✨ File has version control, getting latest version");
+
+        // Load metadata to get current version
+        let metadata = version_control::version_storage::load_versioned_file_metadata(&versioned_file_id)?;
+        let current_version = metadata.current_version.clone();
+
+        // Get content of current version
+        match version_control::version_storage::get_file_version_content(&versioned_file_id, &current_version) {
+            Ok(content) => {
+                return Ok(HttpResponse::Ok().content_type("text/plain").body(content));
+            },
+            Err(e) => {
+                // If version not found, fall back to regular file storage
+                warn!("⚠️ Version not found, falling back to regular storage: {:?}", e);
+                // Continue with regular file loading below
+            }
+        }
+    }
 
     // Determine the storage path based on active team
     let filepath = if let Some(team_id) = user_context.active_team_id {
@@ -139,55 +166,128 @@ async fn upload_file(
     let filepath = format!("{}/{}", storage_dir, filename);
     info!("📝 Writing file to: {}", filepath);
 
+    // Create a file ID for version control
+    let file_id = Uuid::new_v4().to_string();
+    let enable_versioning = true; // Default to enabling version control
+
     // Save the file content
     match fs::write(&filepath, &upload_data.file_content) {
         Ok(_) => {
             info!("✅ File written successfully");
 
-            // If metadata exists, create or update it
-            if let Some(mut metadata) = upload_data.metadata.clone() {
-                // Generate file ID if not provided
-                if metadata.file_id.is_none() {
-                    metadata.file_id = Some(Uuid::new_v4().to_string());
-                }
+            // Initialize version control if enabled
+            if enable_versioning {
+                // Initialize a new versioned file
+                match version_control::version_storage::initialize_file_versioning(
+                    &file_id,
+                    &filename,
+                    &upload_data.file_content,
+                    &user_context.user_id,
+                    team_id.clone()
+                ) {
+                    Ok(metadata) => {
+                        info!("✅ Version control initialized for file: {}", filename);
 
-                // Set last_modified to current time if not provided
-                if metadata.last_modified.is_none() {
-                    metadata.last_modified = Some(Utc::now());
-                }
+                        // If metadata exists in request, update it with versioning info
+                        if let Some(mut metadata_req) = upload_data.metadata.clone() {
+                            // Set file_id and current_version in metadata
+                            metadata_req.file_id = Some(file_id.clone());
+                            metadata_req.current_version = Some(metadata.current_version.clone());
+                            metadata_req.versioned = Some(true);
 
-                // Add team info to metadata
-                metadata.team_id = team_id.clone();
+                            // Save enhanced metadata to a separate file
+                            let metadata_path = format!("{}/{}.meta", storage_dir, filename);
+                            let metadata_json = match serde_json::to_string(&metadata_req) {
+                                Ok(json) => json,
+                                Err(e) => {
+                                    error!("❌ Error serializing metadata: {:?}", e);
+                                    return Err(ServiceError::InternalServerError);
+                                }
+                            };
 
-                // Ensure filename matches
-                metadata.file_name = filename.clone();
+                            info!("📝 Writing metadata with version info to: {}", metadata_path);
 
-                // Save metadata to a separate file
-                let metadata_path = format!("{}/{}.meta", storage_dir, filename);
-                let metadata_json = match serde_json::to_string(&metadata) {
-                    Ok(json) => json,
+                            if let Err(e) = fs::write(&metadata_path, metadata_json) {
+                                error!("❌ Error writing metadata: {:?}", e);
+                                return Err(ServiceError::InternalServerError);
+                            }
+
+                            info!("✅ Enhanced metadata written successfully");
+                        }
+
+                        Ok(HttpResponse::Ok().json(json!({
+                            "message": format!("File '{}' uploaded successfully with version control!", filename),
+                            "filename": filename,
+                            "path": filepath,
+                            "team_id": team_id,
+                            "file_id": file_id,
+                            "current_version": metadata.current_version
+                        })))
+                    },
                     Err(e) => {
-                        error!("❌ Error serializing metadata: {:?}", e);
+                        error!("❌ Error initializing version control: {:?}", e);
+                        // Continue anyway, just without version control
+
+                        // If metadata exists, create or update it
+                        if let Some(metadata) = upload_data.metadata.clone() {
+                            // Save metadata to a separate file
+                            let metadata_path = format!("{}/{}.meta", storage_dir, filename);
+                            let metadata_json = match serde_json::to_string(&metadata) {
+                                Ok(json) => json,
+                                Err(e) => {
+                                    error!("❌ Error serializing metadata: {:?}", e);
+                                    return Err(ServiceError::InternalServerError);
+                                }
+                            };
+
+                            info!("📝 Writing metadata to: {}", metadata_path);
+
+                            if let Err(e) = fs::write(&metadata_path, metadata_json) {
+                                error!("❌ Error writing metadata: {:?}", e);
+                                return Err(ServiceError::InternalServerError);
+                            }
+
+                            info!("✅ Metadata written successfully");
+                        }
+
+                        Ok(HttpResponse::Ok().json(json!({
+                            "message": format!("File '{}' uploaded successfully (without version control)!", filename),
+                            "filename": filename,
+                            "path": filepath,
+                            "team_id": team_id
+                        })))
+                    }
+                }
+            } else {
+                // If metadata exists, create or update it without versioning
+                if let Some(metadata) = upload_data.metadata.clone() {
+                    // Save metadata to a separate file
+                    let metadata_path = format!("{}/{}.meta", storage_dir, filename);
+                    let metadata_json = match serde_json::to_string(&metadata) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            error!("❌ Error serializing metadata: {:?}", e);
+                            return Err(ServiceError::InternalServerError);
+                        }
+                    };
+
+                    info!("📝 Writing metadata to: {}", metadata_path);
+
+                    if let Err(e) = fs::write(&metadata_path, metadata_json) {
+                        error!("❌ Error writing metadata: {:?}", e);
                         return Err(ServiceError::InternalServerError);
                     }
-                };
 
-                info!("📝 Writing metadata to: {}", metadata_path);
-
-                if let Err(e) = fs::write(&metadata_path, metadata_json) {
-                    error!("❌ Error writing metadata: {:?}", e);
-                    return Err(ServiceError::InternalServerError);
+                    info!("✅ Metadata written successfully");
                 }
 
-                info!("✅ Metadata written successfully");
+                Ok(HttpResponse::Ok().json(json!({
+                    "message": format!("File '{}' uploaded successfully!", filename),
+                    "filename": filename,
+                    "path": filepath,
+                    "team_id": team_id
+                })))
             }
-
-            Ok(HttpResponse::Ok().json(json!({
-                "message": format!("File '{}' uploaded successfully!", filename),
-                "filename": filename,
-                "path": filepath,
-                "team_id": team_id
-            })))
         },
         Err(e) => {
             error!("❌ Error writing file: {:?}", e);
@@ -209,9 +309,34 @@ async fn get_file_metadata(req: HttpRequest, path: web::Path<String>) -> Result<
         "public".to_string()
     };
 
-    info!("📋 Get metadata request: user_id={}, filename={}", user_id, path);
-
     let filename = path.into_inner();
+    info!("📋 Get metadata request: user_id={}, filename={}", user_id, filename);
+
+    // Check if file has version control
+    // For simplicity, we'll use the filename as the file_id for now
+    let versioned_file_id = filename.clone();
+    let version_metadata = version_control::version_storage::load_versioned_file_metadata(&versioned_file_id);
+
+    if let Ok(v_metadata) = version_metadata {
+        if !v_metadata.versions.is_empty() {
+            info!("✨ File has version control metadata");
+
+            // Create a regular metadata object with version information
+            let metadata = FileMetadata {
+                file_id: Some(versioned_file_id),
+                file_name: filename.clone(),
+                last_modified: Some(v_metadata.last_modified),
+                team_id: v_metadata.team_id.clone(),
+                current_version: Some(v_metadata.current_version.clone()),
+                versioned: Some(true),
+            };
+
+            // Return the enhanced metadata
+            return Ok(HttpResponse::Ok().json(metadata));
+        }
+    }
+
+    // If no version control or version control failed, fall back to regular metadata
     let metadata_path = format!("./storage/{}/{}.meta", user_id, filename);
     let file_path = format!("./storage/{}/{}", user_id, filename);
 
@@ -227,6 +352,8 @@ async fn get_file_metadata(req: HttpRequest, path: web::Path<String>) -> Result<
             file_name: filename.clone(),
             last_modified: Some(Utc::now()),
             team_id: None,
+            current_version: None,
+            versioned: Some(false),
         };
 
         info!("✨ Creating default metadata for non-existent file");
@@ -237,7 +364,22 @@ async fn get_file_metadata(req: HttpRequest, path: web::Path<String>) -> Result<
     match fs::read_to_string(&metadata_path) {
         Ok(content) => {
             info!("✅ Metadata found and read successfully");
-            Ok(HttpResponse::Ok().content_type("application/json").body(content))
+
+            // Parse the metadata
+            match serde_json::from_str::<FileMetadata>(&content) {
+                Ok(mut metadata) => {
+                    // Ensure file_id exists
+                    if metadata.file_id.is_none() {
+                        metadata.file_id = Some(Uuid::new_v4().to_string());
+                    }
+                    Ok(HttpResponse::Ok().json(metadata))
+                },
+                Err(e) => {
+                    error!("❌ Error parsing metadata: {:?}", e);
+                    // Return as-is to let client handle it
+                    Ok(HttpResponse::Ok().content_type("application/json").body(content))
+                }
+            }
         },
         Err(e) => {
             debug!("⚠️ Metadata file not found or couldn't be read: {:?}", e);
@@ -248,14 +390,12 @@ async fn get_file_metadata(req: HttpRequest, path: web::Path<String>) -> Result<
                 file_name: filename.clone(),
                 last_modified: Some(Utc::now()),
                 team_id: None,
+                current_version: None,
+                versioned: Some(false),
             };
 
-            // Convert to JSON
-            let metadata_json = serde_json::to_string(&metadata)
-                .map_err(|_| ServiceError::InternalServerError)?;
-
             info!("✨ Created default metadata for existing file");
-            Ok(HttpResponse::Ok().content_type("application/json").body(metadata_json))
+            Ok(HttpResponse::Ok().json(metadata))
         }
     }
 }

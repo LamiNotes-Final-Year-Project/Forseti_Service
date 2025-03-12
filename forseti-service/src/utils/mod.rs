@@ -10,6 +10,10 @@ use std::fs;
 use std::path::Path;
 use uuid::Uuid;
 
+// Import the version control module
+pub mod version_control;
+pub(crate) mod file_lock;
+
 // UserContext for storing user information in request extensions
 #[derive(Debug, Clone)]
 pub struct UserContext {
@@ -37,6 +41,11 @@ pub fn get_active_team_from_request(req: &HttpRequest) -> Option<String> {
     } else {
         None
     }
+}
+
+// Helper function to get username from email
+pub fn get_username_from_email(email: &str) -> String {
+    email.split('@').next().unwrap_or("user").to_string()
 }
 
 // JWT utility functions
@@ -461,6 +470,13 @@ pub mod fs_utils {
         Ok(file_names)
     }
 }
+
+// Initialize version control storage
+pub fn initialize_version_control() -> std::io::Result<()> {
+    // Ensure version control directories exist
+    version_control::version_storage::ensure_version_storage()
+}
+
 // Middleware for JWT authentication
 use actix_web::{
     dev::{forward_ready, Service, ServiceResponse, Transform},

@@ -3,6 +3,10 @@ use chrono::{DateTime, Utc};
 use std::fmt;
 use actix_web::{HttpResponse, ResponseError};
 
+// Import the file_version module
+pub mod file_version;
+pub use file_version::*;
+
 // File upload and metadata models
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UploadRequest {
@@ -18,6 +22,9 @@ pub struct FileMetadata {
     #[serde(with = "chrono::serde::ts_seconds_option")]
     pub last_modified: Option<DateTime<Utc>>,
     pub team_id: Option<String>, // Add team_id field
+    // New fields for versioning
+    pub current_version: Option<String>,
+    pub versioned: Option<bool>,
 }
 
 // Team models
@@ -92,6 +99,7 @@ pub enum ServiceError {
     Unauthorized,
     NotFound,
     Forbidden,
+    Conflict(String),
 }
 
 // Implement Display for ServiceError
@@ -103,6 +111,7 @@ impl fmt::Display for ServiceError {
             ServiceError::Unauthorized => write!(f, "Unauthorized"),
             ServiceError::NotFound => write!(f, "Not Found"),
             ServiceError::Forbidden => write!(f, "Forbidden"),
+            ServiceError::Conflict(msg) => write!(f, "Conflict: {}", msg),
         }
     }
 }
@@ -124,6 +133,8 @@ impl ResponseError for ServiceError {
                 HttpResponse::NotFound().json("Not Found"),
             ServiceError::Forbidden =>
                 HttpResponse::Forbidden().json("Forbidden: You don't have permission to access this resource"),
+            ServiceError::Conflict(ref message) =>
+                HttpResponse::Conflict().json(message),
         }
     }
 }
