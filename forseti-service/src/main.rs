@@ -26,6 +26,7 @@ async fn main() -> std::io::Result<()> {
     std::fs::create_dir_all("./storage/teams")?; // Add teams directory
     std::fs::create_dir_all("./storage/team_members")?; // Add team members directory
     std::fs::create_dir_all("./storage/public")?; // Ensure public dir exists
+    std::fs::create_dir_all("./storage/invitations")?;
 
     // Initialize version control storage
     initialize_version_control()?;
@@ -56,6 +57,7 @@ async fn main() -> std::io::Result<()> {
             .configure(routes::team_routes::init_routes) // Add team routes
             .configure(routes::version_routes::init_routes) // Add version control routes
             .configure(routes::lock_routes::init_routes) // Add lock management routes
+            .configure(routes::invitation_routes::init_routes)
     })
         .bind(address)?
         .run()

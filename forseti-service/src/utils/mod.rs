@@ -13,6 +13,7 @@ use uuid::Uuid;
 // Import the version control module
 pub mod version_control;
 pub(crate) mod file_lock;
+pub mod invitation_storage;
 
 // UserContext for storing user information in request extensions
 #[derive(Debug, Clone)]

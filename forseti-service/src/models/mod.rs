@@ -1,3 +1,4 @@
+// forseti-service/src/models/mod.rs
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use std::fmt;
@@ -6,6 +7,10 @@ use actix_web::{HttpResponse, ResponseError};
 // Import the file_version module
 pub mod file_version;
 pub use file_version::*;
+
+// Add invitation module
+pub mod invitations;
+pub use invitations::*;
 
 // File upload and metadata models
 #[derive(Serialize, Deserialize, Debug, Clone)]
