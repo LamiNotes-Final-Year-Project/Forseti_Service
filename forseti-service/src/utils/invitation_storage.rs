@@ -248,3 +248,18 @@ pub fn enrich_invitation(invitation: &mut TeamInvitation) -> Result<(), ServiceE
 
     Ok(())
 }
+
+// Delete all invitations for a team
+pub fn delete_team_invitations(team_id: &str) -> Result<usize, ServiceError> {
+    let invitations = get_invitations_for_team(team_id)?;
+    let mut deleted_count = 0;
+    
+    for invitation in invitations {
+        if delete_invitation(&invitation.id)? {
+            deleted_count += 1;
+        }
+    }
+    
+    info!("✅ Deleted {} invitations for team: {}", deleted_count, team_id);
+    Ok(deleted_count)
+}

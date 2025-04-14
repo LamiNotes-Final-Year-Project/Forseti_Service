@@ -401,6 +401,143 @@ pub mod team_storage {
             None => Ok(false),
         }
     }
+    
+    // Get all members of a team
+    pub fn get_team_members(team_id: &str) -> Result<Vec<TeamMember>, ServiceError> {
+        let mut members = Vec::new();
+        let team_members_dir = Path::new(TEAM_MEMBERS_DIR);
+        
+        if !team_members_dir.exists() {
+            return Ok(members);
+        }
+        
+        // Find all team memberships for this team
+        for entry in fs::read_dir(team_members_dir).map_err(|e| {
+            error!("Failed to read team members directory: {:?}", e);
+            ServiceError::InternalServerError
+        })? {
+            let entry = entry.map_err(|e| {
+                error!("Failed to read directory entry: {:?}", e);
+                ServiceError::InternalServerError
+            })?;
+            let path = entry.path();
+            let filename = path.file_name().unwrap().to_string_lossy();
+            
+            // Check if this is a file for the team
+            if path.is_file() && filename.starts_with(&format!("{}_", team_id)) {
+                let content = fs::read_to_string(&path).map_err(|e| {
+                    error!("Failed to read team member file: {:?}", e);
+                    ServiceError::InternalServerError
+                })?;
+                
+                let team_member: TeamMember = match serde_json::from_str(&content) {
+                    Ok(tm) => tm,
+                    Err(e) => {
+                        warn!("Failed to parse team member JSON: {:?}", e);
+                        continue;
+                    }
+                };
+                
+                members.push(team_member);
+            }
+        }
+        
+        Ok(members)
+    }
+    
+    // Update a team member's role
+    pub fn update_team_member_role(user_id: &str, team_id: &str, role: TeamRole) -> Result<(), ServiceError> {
+        let member_path = format!("{}/{}_{}.json", TEAM_MEMBERS_DIR, team_id, user_id);
+        let path = Path::new(&member_path);
+        
+        if !path.exists() {
+            return Err(ServiceError::NotFound);
+        }
+        
+        let content = fs::read_to_string(path).map_err(|e| {
+            error!("Failed to read team member file: {:?}", e);
+            ServiceError::InternalServerError
+        })?;
+        
+        let mut team_member: TeamMember = serde_json::from_str(&content).map_err(|e| {
+            error!("Failed to parse team member JSON: {:?}", e);
+            ServiceError::InternalServerError
+        })?;
+        
+        // Update the role
+        team_member.role = role;
+        
+        // Save the updated team member
+        add_team_member(&team_member)
+    }
+    
+    // Remove a member from a team
+    pub fn remove_team_member(user_id: &str, team_id: &str) -> Result<bool, ServiceError> {
+        let member_path = format!("{}/{}_{}.json", TEAM_MEMBERS_DIR, team_id, user_id);
+        let path = Path::new(&member_path);
+        
+        if !path.exists() {
+            return Ok(false);
+        }
+        
+        fs::remove_file(path).map_err(|e| {
+            error!("Failed to delete team member file: {:?}", e);
+            ServiceError::InternalServerError
+        })?;
+        
+        Ok(true)
+    }
+    
+    // Delete all members of a team
+    pub fn delete_team_members(team_id: &str) -> Result<usize, ServiceError> {
+        let team_members_dir = Path::new(TEAM_MEMBERS_DIR);
+        let mut deleted_count = 0;
+        
+        if !team_members_dir.exists() {
+            return Ok(0);
+        }
+        
+        // Find all team memberships for this team
+        for entry in fs::read_dir(team_members_dir).map_err(|e| {
+            error!("Failed to read team members directory: {:?}", e);
+            ServiceError::InternalServerError
+        })? {
+            let entry = entry.map_err(|e| {
+                error!("Failed to read directory entry: {:?}", e);
+                ServiceError::InternalServerError
+            })?;
+            let path = entry.path();
+            let filename = path.file_name().unwrap().to_string_lossy();
+            
+            // Check if this is a file for the team
+            if path.is_file() && filename.starts_with(&format!("{}_", team_id)) {
+                fs::remove_file(&path).map_err(|e| {
+                    error!("Failed to delete team member file: {:?}", e);
+                    ServiceError::InternalServerError
+                })?;
+                deleted_count += 1;
+            }
+        }
+        
+        Ok(deleted_count)
+    }
+    
+    // Delete a team
+    pub fn delete_team(team_id: &str) -> Result<bool, ServiceError> {
+        let team_path = format!("{}/{}.json", TEAMS_DIR, team_id);
+        let path = Path::new(&team_path);
+        
+        if !path.exists() {
+            return Ok(false);
+        }
+        
+        fs::remove_file(path).map_err(|e| {
+            error!("Failed to delete team file: {:?}", e);
+            ServiceError::InternalServerError
+        })?;
+        
+        Ok(true)
+    }
 }
 
 // File system utilities
@@ -469,6 +606,41 @@ pub mod fs_utils {
         }
 
         Ok(file_names)
+    }
+    
+    // Delete all files for a team
+    pub fn delete_team_files(team_id: &str) -> io::Result<usize> {
+        let team_dir = format!("./storage/teams/{}", team_id);
+        let path = Path::new(&team_dir);
+        
+        if !path.exists() {
+            return Ok(0);
+        }
+        
+        let mut deleted_count = 0;
+        
+        // Recursively delete all files and subdirectories
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_file() {
+                fs::remove_file(&path)?;
+                deleted_count += 1;
+            } else if path.is_dir() {
+                // For simplicity, we're not recursively handling subdirectories here
+                // In a production environment, you might want to use a crate like 'walkdir'
+                fs::remove_dir_all(&path)?;
+                deleted_count += 1;
+            }
+        }
+        
+        // Remove the team directory itself
+        if fs::remove_dir(path).is_ok() {
+            info!("Removed team directory: {}", team_dir);
+        }
+        
+        Ok(deleted_count)
     }
 }
 

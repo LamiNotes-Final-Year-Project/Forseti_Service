@@ -12,6 +12,10 @@ pub use file_version::*;
 pub mod invitations;
 pub use invitations::*;
 
+// Add team module
+pub mod team;
+pub use team::*;
+
 // File upload and metadata models
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UploadRequest {
@@ -32,36 +36,8 @@ pub struct FileMetadata {
     pub versioned: Option<bool>,
 }
 
-// Team models
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Team {
-    pub id: String,
-    pub name: String,
-    pub owner_id: String,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub enum TeamRole {
-    Viewer = 0,
-    Contributor = 1,
-    Owner = 2,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TeamMember {
-    pub user_id: String,
-    pub team_id: String,
-    pub role: TeamRole,
-    #[serde(with = "chrono::serde::ts_seconds_option")]
-    pub access_expires: Option<DateTime<Utc>>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TeamData {
-    pub name: String,
-}
+// Team models - moved to team.rs
+// Using team.rs version of TeamData
 
 // User models for authentication
 #[derive(Serialize, Deserialize, Debug)]

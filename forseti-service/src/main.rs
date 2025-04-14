@@ -56,7 +56,7 @@ async fn main() -> std::io::Result<()> {
             .configure(routes::auth_routes::init_routes)
             .configure(routes::team_routes::init_routes) // Add team routes
             .configure(routes::version_routes::init_routes) // Add version control routes
-            .configure(routes::lock_routes::init_routes) // Add lock management routes
+            .configure(routes::file_lock::lock_routes::init_routes) // Add lock management routes
             .configure(routes::invitation_routes::init_routes)
     })
         .bind(address)?

@@ -10,7 +10,7 @@ pub struct Team {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub enum Role {
+pub enum TeamRole {
     Viewer = 0,
     Contributor = 1,
     Owner = 2,
@@ -20,6 +20,11 @@ pub enum Role {
 pub struct TeamMember {
     pub user_id: String,
     pub team_id: String,
-    pub role: Role,
+    pub role: TeamRole,
     pub access_expires: Option<DateTime<Utc>>, // For viewers
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TeamData {
+    pub name: String,
 }
