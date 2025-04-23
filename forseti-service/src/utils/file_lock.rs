@@ -244,7 +244,7 @@ where
         let method = req.method().clone();
         let path = req.path().to_owned();
 
-        // Periodically clean up expired locks
+        // Periodically cleans up expired locks
         if let Err(e) = LOCK_REGISTRY.cleanup_expired_locks() {
             warn!("Error cleaning up expired locks: {}", e);
         }
@@ -301,7 +301,7 @@ where
                         Ok(None) => {
                             // File is not locked, allow the request
                             if path.ends_with("/edit") {
-                                // If this is an edit request, try to acquire a lock
+                                // If this is an edit request, trys to acquire a lock
                                 match LOCK_REGISTRY.try_acquire_lock(file_id, user_id, 300) { // 5 minute lock
                                     Ok(true) => {
                                         debug!("Acquired lock for file {file_id} by user {user_id}");

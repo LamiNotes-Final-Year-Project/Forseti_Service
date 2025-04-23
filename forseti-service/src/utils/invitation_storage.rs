@@ -191,7 +191,6 @@ pub fn get_invitations_for_team(team_id: &str) -> Result<Vec<TeamInvitation>, Se
             }
         }
     }
-
     Ok(invitations)
 }
 

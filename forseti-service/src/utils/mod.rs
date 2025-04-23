@@ -14,6 +14,7 @@ use uuid::Uuid;
 pub mod version_control;
 pub(crate) mod file_lock;
 pub mod invitation_storage;
+pub mod claude_api;
 
 // UserContext for storing user information in request extensions
 #[derive(Debug, Clone)]

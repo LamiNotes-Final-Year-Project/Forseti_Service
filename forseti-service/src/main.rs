@@ -23,16 +23,16 @@ async fn main() -> std::io::Result<()> {
     info!("Ensuring storage directories exist");
     std::fs::create_dir_all("./storage")?;
     std::fs::create_dir_all("./storage/users")?;
-    std::fs::create_dir_all("./storage/teams")?; // Add teams directory
-    std::fs::create_dir_all("./storage/team_members")?; // Add team members directory
-    std::fs::create_dir_all("./storage/public")?; // Ensure public dir exists
+    std::fs::create_dir_all("./storage/teams")?;
+    std::fs::create_dir_all("./storage/team_members")?;
+    std::fs::create_dir_all("./storage/public")?;
     std::fs::create_dir_all("./storage/invitations")?;
 
     // Initialize version control storage
     initialize_version_control()?;
 
     // Get configuration from environment or use defaults
-    let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "9090".to_string());
     let address = format!("{}:{}", host, port);
 
@@ -50,14 +50,15 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(Logger::default())
             .wrap(cors)
-            .wrap(Auth) // Add the Auth middleware
-            .wrap(FileLockMiddleware) // Add the File Lock middleware
+            .wrap(Auth)
+            .wrap(FileLockMiddleware)
             .configure(routes::file_routes::init_routes)
             .configure(routes::auth_routes::init_routes)
-            .configure(routes::team_routes::init_routes) // Add team routes
-            .configure(routes::version_routes::init_routes) // Add version control routes
-            .configure(routes::file_lock::lock_routes::init_routes) // Add lock management routes
+            .configure(routes::team_routes::init_routes)
+            .configure(routes::version_routes::init_routes)
+            .configure(routes::file_lock::lock_routes::init_routes)
             .configure(routes::invitation_routes::init_routes)
+            .configure(routes::claude_routes::init_routes)
     })
         .bind(address)?
         .run()
